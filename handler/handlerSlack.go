@@ -1,15 +1,17 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/StudioAquatan/slack-invite-bot/model"
+	"github.com/jinzhu/gorm"
+	"github.com/nlopes/slack"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
-	"strings"
-
-	"github.com/nlopes/slack"
+	"os"
 )
 
 const (
@@ -28,6 +30,19 @@ type SlackListener struct {
 type interactionHandler struct {
 	slackClient       *slack.Client
 	verificationToken string
+}
+
+type esaInvitationJson struct {
+	Member esaEmailJson `json:"member"`
+}
+
+type esaEmailJson struct {
+	Emails [] string `json:"emails"`
+}
+
+type slackInvitationJson struct {
+	Token string `json:"token"`
+	Email string `json:"email"`
 }
 
 // ListenAndResponse listens slack events and response
@@ -51,23 +66,6 @@ func (s *SlackListener) ListenAndResponse() {
 
 // handleMesageEvent handles message events.
 func (s *SlackListener) handleMessageEvent(ev *slack.MessageEvent) error {
-	// Only response in specific channel. Ignore else.
-	if ev.Channel != s.channelID {
-		log.Printf("%s %s", ev.Channel, ev.Msg.Text)
-		return nil
-	}
-
-	// Only response mention to bot. Ignore else.
-	if !strings.HasPrefix(ev.Msg.Text, fmt.Sprintf("<@%s> ", s.botID)) {
-		return nil
-	}
-
-	// Parse message
-	m := strings.Split(strings.TrimSpace(ev.Msg.Text), " ")[1:]
-	if len(m) == 0 || m[0] != "はじめまして" {
-		return fmt.Errorf("invalid message")
-	}
-
 	// value is passed to message handler when request is approved.
 	attachment := slack.Attachment{
 		Text:       "入会申請がきたよ！ 承認する？",
@@ -142,11 +140,41 @@ func (h interactionHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	action := message.Actions[0]
 	switch action.Name {
 	case actionAllow:
-		// todo slackとesaの招待メールを送る関数を設置
+		// todo 承認できる人間を限定する？
+		db, err := gorm.Open("sqlite3", "../db.sqlite3")
+		if err != nil {
+			log.Printf("[ERROR] Invalid action was submitted: %s", err)
+			panic("failed to connect database")
+		}
+		defer db.Close()
+
+		var member model.Member
+		db.Where("process = ?", "0").Last(&member)
+
+		// todo invite関数を並列処理する
+		err = inviteEsa(member.Email)
+		if err != nil {
+			log.Printf("[ERROR] Failed to invite to Esa: %s", err)
+			title := "Esaの招待作業に失敗しました."
+			responseMessage(w, message.OriginalMessage, title, "")
+			return
+		}
+		db.Model(&member).Update("process", member.Process+1) //todo serviceにまとめる
+
+		err = inviteSlack(member.Email)
+		if err != nil {
+			log.Printf("[ERROR] Failed to invite to Slack: %s", err)
+			title := "Slackの招待作業に失敗しました."
+			responseMessage(w, message.OriginalMessage, title, "")
+			return
+		}
+		db.Model(&member).Update("process", member.Process+1) //todo serviceにまとめる
+
 		title := fmt.Sprintf(":o: @%s さんが入会を承認しました！", message.User.Name)
 		responseMessage(w, message.OriginalMessage, title, "")
 		return
 	case actionDeny:
+		// todo 拒否できる人間を限定する？
 		// todo 断ったときはどうするか 一度保留にしておくorデータベースに情報を残したまま放置orデータも消す．
 		title := fmt.Sprintf(":x: @%s さんが入会を拒否しました．", message.User.Name)
 		responseMessage(w, message.OriginalMessage, title, "")
@@ -173,4 +201,91 @@ func responseMessage(w http.ResponseWriter, original slack.Message, title, value
 	w.Header().Add("Content-type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(&original)
+}
+
+func inviteSlack(email string) error {
+	baseUrl := "https://slack.com/api"
+	action := "/users.admin.invite"
+	accessToken := os.Getenv("SLACK_TOKEN") //todo envconfigにまとめる
+
+	endpointUrl := baseUrl + action
+
+	if len(accessToken) > 0 {
+		jsonSlack := slackInvitationJson{
+			Token: accessToken,
+			Email: email,
+		}
+
+		outputJson, err := json.Marshal(&jsonSlack)
+		if err != nil {
+			return err
+		}
+
+		req, err := http.NewRequest(
+			"POST",
+			endpointUrl,
+			bytes.NewBuffer([]byte(outputJson)),
+		)
+		if err != nil {
+			return err
+		}
+
+		// Content-Type 設定
+		req.Header.Set("Content-Type", "application/json")
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		log.Printf("POST Slack invitation succeeded! %s", fmt.Sprintf("%s", resp)) //TODO ここのstringへの変換
+	} else {
+		log.Printf("[ERROR] Can't find \"Slack_TOKEN\".")
+	}
+
+	return nil
+}
+
+func inviteEsa(email string) error {
+	baseUrl := "https://api.esa.io/v1/"
+	action := fmt.Sprintf("teams/%s/invitations", os.Getenv("ESA_TEAMNAME")) //todo envconfigにまとめる
+	accessToken := os.Getenv("ESA_TOKEN")
+
+	endpointUrl := baseUrl + action + "?" + accessToken
+
+	if len(accessToken) > 0 {
+		jsonEsa := esaInvitationJson{
+			Member: esaEmailJson{
+				Emails: []string{email},
+			},
+		}
+
+		outputJson, err := json.Marshal(&jsonEsa)
+		if err != nil {
+			return err
+		}
+
+		req, err := http.NewRequest(
+			"POST",
+			endpointUrl,
+			bytes.NewBuffer([]byte(outputJson)),
+		)
+		if err != nil {
+			return err
+		}
+
+		// Content-Type 設定
+		req.Header.Set("Content-Type", "application/json")
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		log.Printf("POST Esa invitation succeeded! %s", fmt.Sprintf("%s", resp)) //TODO ここのstringへの変換
+	} else {
+		log.Printf("[ERROR] Can't find \"ESA_TOKEN\".")
+	}
+
+	return nil
 }
