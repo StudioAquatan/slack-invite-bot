@@ -120,17 +120,18 @@ func (i InteractionSlack) ServeInteractiveSlack(c echo.Context, message *slack.I
 
 // responseMessage response to the original slackbutton enabled message.
 // It removes button and replace it with message which indicate how bot will work
-func responseMessage(c echo.Context, original slack.Message, title, value string) error {
-	original.Attachments[0].Actions = []slack.AttachmentAction{} // empty buttons
-	original.Attachments[0].Fields = []slack.AttachmentField{
+func responseMessage(c echo.Context, m slack.Message, title, value string) error {
+	m.Attachments[0].Actions = []slack.AttachmentAction{} // empty buttons
+	m.Attachments[0].Fields = []slack.AttachmentField{
 		{
 			Title: title,
 			Value: value,
 			Short: false,
 		},
 	}
+	m.ReplaceOriginal=true
 
-	return c.JSON(http.StatusOK, original)
+	return c.JSON(http.StatusOK, m)
 }
 
 func inviteSlack(email string) error {
@@ -173,7 +174,7 @@ func inviteSlack(email string) error {
 		if err != nil {
 			return err
 		}
-		log.Printf("POST Slack invitation succeeded! %s", fmt.Sprintf("%s", resp)) //TODO ここのstringへの変換
+		log.Printf("POST Slack invitation succeeded! %+v\n",resp)
 	} else {
 		log.Printf("[ERROR] Can't find \"Slack_TOKEN\".")
 	}
@@ -222,7 +223,7 @@ func inviteEsa(email string) error {
 		if err != nil {
 			return err
 		}
-		log.Printf("POST Esa invitation succeeded! %s", fmt.Sprintf("%s", resp)) //TODO ここのstringへの変換
+		log.Printf("POST Esa invitation succeeded! %+v",resp)
 	} else {
 		log.Printf("[ERROR] Can't find \"ESA_TOKEN\".")
 	}

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"encoding/json"
 	"github.com/StudioAquatan/slack-invite-bot/handler"
 	"github.com/StudioAquatan/slack-invite-bot/model"
 	"log"
@@ -61,14 +61,13 @@ func postSlack(c echo.Context) (err error) {
 }
 
 func interactionSlack(c echo.Context) (err error) {
-	post := new(slack.InteractionCallback)
-	if err := c.Bind(post); err != nil { //TODO c.Bind(post)してもpostに値が格納されない
+	post := c.FormValue("payload")
+
+	var data slack.InteractionCallback
+	if err := json.Unmarshal([]byte(post), &data); err != nil {
+		log.Printf("[ERROR] Failed to process json unmarshal: %s", err)
 		return err
 	}
-	post.Token="hoge"
-
-	//todo debug
-	fmt.Printf("%+v\n", post)
 
 	var env model.EnvConfig
 	if err := envconfig.Process("", &env); err != nil {
@@ -82,5 +81,6 @@ func interactionSlack(c echo.Context) (err error) {
 		VerificationToken: env.SlackVerificationToken,
 	}
 
-	return interactionSlack.ServeInteractiveSlack(c, post)
+
+	return interactionSlack.ServeInteractiveSlack(c, &data)
 }
