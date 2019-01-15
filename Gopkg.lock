@@ -10,14 +10,6 @@
   version = "v1.4.0"
 
 [[projects]]
-  digest = "1:15a204bc73cf9a95e05f67e48c7f2001d5c7355b5998892d4e643c8dda4589f1"
-  name = "github.com/jinzhu/gorm"
-  packages = ["dialects/sqlite"]
-  pruneopts = "UT"
-  revision = "472c70caa40267cb89fd8facb07fe6454b578626"
-  version = "v1.9.2"
-
-[[projects]]
   digest = "1:edbef42561faa44c19129b68d1e109fbc1647f63239250391eadc8d0e7c9f669"
   name = "github.com/kelseyhightower/envconfig"
   packages = ["."]
@@ -59,14 +51,6 @@
   pruneopts = "UT"
   revision = "6ca4dbf54d38eea1a992b3c722a76a5d1c4cb25c"
   version = "v0.0.4"
-
-[[projects]]
-  digest = "1:4a49346ca45376a2bba679ca0e83bec949d780d4e927931317904bad482943ec"
-  name = "github.com/mattn/go-sqlite3"
-  packages = ["."]
-  pruneopts = "UT"
-  revision = "c7c4067b79cc51e6dfdcef5c702e74b1e0fa7c75"
-  version = "v1.10.0"
 
 [[projects]]
   branch = "master"
@@ -127,7 +111,6 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
-    "github.com/jinzhu/gorm/dialects/sqlite",
     "github.com/kelseyhightower/envconfig",
     "github.com/labstack/echo",
     "github.com/nlopes/slack",

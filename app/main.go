@@ -4,14 +4,11 @@ import (
 	"encoding/json"
 	"github.com/StudioAquatan/slack-invite-bot/app/handler"
 	"github.com/StudioAquatan/slack-invite-bot/app/model"
+	"github.com/kelseyhightower/envconfig"
+	"github.com/labstack/echo"
+	"github.com/nlopes/slack"
 	"log"
 	"net/http"
-
-	_ "github.com/jinzhu/gorm/dialects/sqlite"
-	"github.com/labstack/echo"
-
-	"github.com/kelseyhightower/envconfig"
-	"github.com/nlopes/slack"
 )
 
 func main() {
@@ -77,7 +74,6 @@ func interactionSlack(c echo.Context) (err error) {
 		SlackClient:       client,
 		VerificationToken: env.SlackVerificationToken,
 	}
-
 
 	return interactionSlack.ServeInteractiveSlack(c, &data)
 }
