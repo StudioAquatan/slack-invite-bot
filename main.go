@@ -23,7 +23,7 @@ func main() {
 		return c.String(http.StatusOK, "Hello, World!")
 	})
 
-	//google formからのPOSTを受けてslackに承認を投げる
+	//POSTを受けるとslackに入会の確認を投げる
 	e.POST("/slack/", postSlack)
 
 	//slackからの返信を受け取る
@@ -35,9 +35,6 @@ func main() {
 
 func postSlack(c echo.Context) (err error) {
 	post := c.FormValue("email")
-	//if err := c.Bind(post); err != nil {
-	//	return err
-	//}
 
 	var env model.EnvConfig
 	if err := envconfig.Process("", &env); err != nil {
