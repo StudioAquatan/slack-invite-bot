@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/StudioAquatan/slack-invite-bot/model"
+	"github.com/StudioAquatan/slack-invite-bot/app/model"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/labstack/echo"
 	"github.com/nlopes/slack"
