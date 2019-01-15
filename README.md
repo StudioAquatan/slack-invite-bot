@@ -33,5 +33,5 @@ esaのチーム名
 ## Author
 - shanpu
 
-##LICENSE
+## LICENSE
 MIT License (c) 2018 StudioAquatan
