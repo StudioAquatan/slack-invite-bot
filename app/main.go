@@ -2,8 +2,8 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/StudioAquatan/slack-invite-bot/handler"
-	"github.com/StudioAquatan/slack-invite-bot/model"
+	"github.com/StudioAquatan/slack-invite-bot/app/handler"
+	"github.com/StudioAquatan/slack-invite-bot/app/model"
 	"log"
 	"net/http"
 

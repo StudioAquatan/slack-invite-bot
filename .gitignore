@@ -82,5 +82,5 @@ fabric.properties
 .idea/httpRequests
 
 # option
-.build/*
+app/.build/*
 
