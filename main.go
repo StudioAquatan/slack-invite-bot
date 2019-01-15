@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"github.com/StudioAquatan/slack-invite-bot/handler"
 	"github.com/StudioAquatan/slack-invite-bot/model"
 	"log"
@@ -13,24 +14,6 @@ import (
 	"github.com/nlopes/slack"
 )
 
-type envConfig struct {
-	// BotToken is bot user token to access to slack API.
-	SlackBotToken string `envconfig:"SLACK_BOT_TOKEN" required:"true"`
-
-	// VerificationToken is used to validate interactive messages from slack.
-	SlackVerificationToken string `envconfig:"SLACK_VERIFICATION_TOKEN" required:"true"`
-
-	// BotID is bot user ID.
-	SlackBotID string `envconfig:"SLACK_BOT_ID" required:"true"`
-
-	// ChannelID is slack channel ID where bot is working.
-	// Bot responses to the mention in this channel.
-	SlackChannelID string `envconfig:"SLACK_CHANNEL_ID" required:"true"`
-
-	//Trello Invitation URL
-	//TrelloInvitationUrl string `envconfig:"TRELLO_URL" required:"true" default:"trello_url"`
-}
-
 func main() {
 	e := echo.New()
 
@@ -40,7 +23,7 @@ func main() {
 		return c.String(http.StatusOK, "Hello, World!")
 	})
 
-	//google formからのPOSTを受けてslackに承認を投げる
+	//POSTを受けるとslackに入会の確認を投げる
 	e.POST("/slack/", postSlack)
 
 	//slackからの返信を受け取る
@@ -51,13 +34,9 @@ func main() {
 }
 
 func postSlack(c echo.Context) (err error) {
-	// TODO ここわざわざmemberモデル生成しなくてもいい?
-	post := new(model.Member)
-	if err := c.Bind(post); err != nil {
-		return err
-	}
+	post := c.FormValue("email")
 
-	var env envConfig
+	var env model.EnvConfig
 	if err := envconfig.Process("", &env); err != nil {
 		log.Printf("[ERROR] Failed to process env var: %s", err)
 		return err
@@ -71,7 +50,7 @@ func postSlack(c echo.Context) (err error) {
 	}
 
 	// mailアドレスも一緒におくる
-	if err := slackBotInfo.PostMessageEvent(post.Email); err != nil {
+	if err := slackBotInfo.PostMessageEvent(post); err != nil {
 		log.Printf("[ERROR] Failed to post message: %s", err)
 	}
 
@@ -79,12 +58,15 @@ func postSlack(c echo.Context) (err error) {
 }
 
 func interactionSlack(c echo.Context) (err error) {
-	post := new(slack.InteractionCallback)
-	if err := c.Bind(post); err != nil { //TODO c.Bind(post)してもpostに値が格納されない
+	post := c.FormValue("payload")
+
+	var data slack.InteractionCallback
+	if err := json.Unmarshal([]byte(post), &data); err != nil {
+		log.Printf("[ERROR] Failed to process json unmarshal: %s", err)
 		return err
 	}
 
-	var env envConfig
+	var env model.EnvConfig
 	if err := envconfig.Process("", &env); err != nil {
 		log.Printf("[ERROR] Failed to process env var: %s", err)
 		return err
@@ -96,5 +78,6 @@ func interactionSlack(c echo.Context) (err error) {
 		VerificationToken: env.SlackVerificationToken,
 	}
 
-	return interactionSlack.ServeInteractiveSlack(c, post)
+
+	return interactionSlack.ServeInteractiveSlack(c, &data)
 }

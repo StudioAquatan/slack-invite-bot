@@ -3,12 +3,15 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/StudioAquatan/slack-invite-bot/model"
+	"github.com/kelseyhightower/envconfig"
 	"github.com/labstack/echo"
 	"github.com/nlopes/slack"
 	"log"
 	"net/http"
-	"os"
+	"net/url"
 	"strings"
 )
 
@@ -38,11 +41,6 @@ type esaEmailJson struct {
 	Emails [] string `json:"emails"`
 }
 
-type slackInvitationJson struct {
-	Token string `json:"token"`
-	Email string `json:"email"`
-}
-
 // Send Confirm Message to Slack.
 func (s *SlackBotInfo) PostMessageEvent(email string) error {
 	// value is passed to message handler when request is approved.
@@ -65,36 +63,35 @@ func (s *SlackBotInfo) PostMessageEvent(email string) error {
 			},
 		},
 	}
-	
 
 	// 予め設定しておいたチャンネル宛に送信する
-	if _, _, err := s.Client.PostMessage(s.ChannelID,slack.MsgOptionAttachments(attachment)); err != nil {
+	if _, _, err := s.Client.PostMessage(s.ChannelID, slack.MsgOptionAttachments(attachment)); err != nil {
 		return fmt.Errorf("failed to post message: %s", err)
 	}
 
 	return nil
 }
 
-//func (h interactionHandler) ServeInteractiveSlack(w http.ResponseWriter, r *http.Request) {
-func (i InteractionSlack) ServeInteractiveSlack(c echo.Context, message *slack.InteractionCallback) (err error){
+func (i InteractionSlack) ServeInteractiveSlack(c echo.Context, message *slack.InteractionCallback) (err error) {
 	// validation
 	// Only accept message from slack with valid token
 	if message.Token != i.VerificationToken {
-		log.Printf("[ERROR] Invalid token: %s. Verification token is %s", message.Token,i.VerificationToken)
+		log.Printf("[ERROR] Invalid token: %s. Verification token is %s", message.Token, i.VerificationToken)
 		return c.String(http.StatusUnauthorized, "")
 	}
 
 	// Process according to action
 	action := message.Actions[0]
 
-	switch  strings.Split(action.Name, "_")[0]{
+	switch strings.Split(action.Name, "_")[0] {
 	case actionAllow:
-		email := strings.Split(action.Name, "_")[1]
-		if email == ""{
+		email := strings.SplitN(action.Name, "_", 2)[1]
+		if email == "" {
 			log.Printf("[ERROR] var email is empty.")
+			title := "emailの取得でエラーが発生しました."
+			return responseMessage(c, message.OriginalMessage, title, "")
 		}
 
-		// todo 承認できる人間を限定する？
 		err := inviteEsa(email)
 		if err != nil {
 			log.Printf("[ERROR] Failed to invite to Esa: %s", err)
@@ -112,8 +109,6 @@ func (i InteractionSlack) ServeInteractiveSlack(c echo.Context, message *slack.I
 		title := fmt.Sprintf(":o: @%s さんが入会を承認しました！", message.User.Name)
 		return responseMessage(c, message.OriginalMessage, title, "")
 	case actionDeny:
-		// todo 拒否できる人間を限定する？
-		// todo 断ったときはどうするか 一度保留にしておくorデータベースに情報を残したまま放置orデータも消す．
 		title := fmt.Sprintf(":x: @%s さんが入会を拒否しました．", message.User.Name)
 		return responseMessage(c, message.OriginalMessage, title, "")
 	default:
@@ -124,102 +119,106 @@ func (i InteractionSlack) ServeInteractiveSlack(c echo.Context, message *slack.I
 
 // responseMessage response to the original slackbutton enabled message.
 // It removes button and replace it with message which indicate how bot will work
-func responseMessage(c echo.Context, original slack.Message, title, value string) error{
-	original.Attachments[0].Actions = []slack.AttachmentAction{} // empty buttons
-	original.Attachments[0].Fields = []slack.AttachmentField{
+func responseMessage(c echo.Context, m slack.Message, title, value string) error {
+	m.Attachments[0].Actions = []slack.AttachmentAction{} // empty buttons
+	m.Attachments[0].Fields = []slack.AttachmentField{
 		{
 			Title: title,
 			Value: value,
 			Short: false,
 		},
 	}
+	m.ReplaceOriginal = true
 
-	return c.JSON(http.StatusOK, original)
+	return c.JSON(http.StatusOK, m)
 }
 
 func inviteSlack(email string) error {
+	var env model.EnvConfig
+	if err := envconfig.Process("", &env); err != nil {
+		log.Printf("[ERROR] Failed to process env var: %s", err)
+		return err
+	}
+	accessToken := env.SlackAdminToken
+
 	baseUrl := "https://slack.com/api"
 	action := "/users.admin.invite"
-	accessToken := os.Getenv("SLACK_TOKEN") //todo envconfigにまとめる
-
 	endpointUrl := baseUrl + action
 
-	if len(accessToken) > 0 {
-		jsonSlack := slackInvitationJson{
-			Token: accessToken,
-			Email: email,
-		}
-
-		outputJson, err := json.Marshal(&jsonSlack)
-		if err != nil {
-			return err
-		}
-
-		req, err := http.NewRequest(
-			"POST",
-			endpointUrl,
-			bytes.NewBuffer([]byte(outputJson)),
-		)
-		if err != nil {
-			return err
-		}
-
-		// Content-Type 設定
-		req.Header.Set("Content-Type", "application/json")
-
-		client := &http.Client{}
-		resp, err := client.Do(req)
-		if err != nil {
-			return err
-		}
-		log.Printf("POST Slack invitation succeeded! %s", fmt.Sprintf("%s", resp)) //TODO ここのstringへの変換
-	} else {
-		log.Printf("[ERROR] Can't find \"Slack_TOKEN\".")
+	if len(accessToken) <= 0 {
+		return errors.New("missing slack_token")
 	}
+
+	values := url.Values{}
+	values.Set("token", accessToken)
+	values.Add("email", email)
+
+	req, err := http.NewRequest(
+		"POST",
+		endpointUrl,
+		strings.NewReader(values.Encode()),
+	)
+	if err != nil {
+		return err
+	}
+
+	// Content-Type 設定
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	log.Printf("POST Slack invitation succeeded! %+v\n", resp)
 
 	return nil
 }
 
 func inviteEsa(email string) error {
-	baseUrl := "https://api.esa.io/v1/"
-	action := fmt.Sprintf("teams/%s/invitations", os.Getenv("ESA_TEAMNAME")) //todo envconfigにまとめる
-	accessToken := os.Getenv("ESA_TOKEN")
+	var env model.EnvConfig
+	if err := envconfig.Process("", &env); err != nil {
+		log.Printf("[ERROR] Failed to process env var: %s", err)
+		return err
+	}
+	accessToken := env.EsaToken
 
+	baseUrl := "https://api.esa.io/v1/"
+	action := fmt.Sprintf("teams/%s/invitations", env.EsaTeamName)
 	endpointUrl := baseUrl + action + "?access_token=" + accessToken
 
-	if len(accessToken) > 0 {
-		jsonEsa := esaInvitationJson{
-			Member: esaEmailJson{
-				Emails: []string{email},
-			},
-		}
-
-		outputJson, err := json.Marshal(&jsonEsa)
-		if err != nil {
-			return err
-		}
-
-		req, err := http.NewRequest(
-			"POST",
-			endpointUrl,
-			bytes.NewBuffer([]byte(outputJson)),
-		)
-		if err != nil {
-			return err
-		}
-
-		// Content-Type 設定
-		req.Header.Set("Content-Type", "application/json")
-
-		client := &http.Client{}
-		resp, err := client.Do(req)
-		if err != nil {
-			return err
-		}
-		log.Printf("POST Esa invitation succeeded! %s", fmt.Sprintf("%s", resp)) //TODO ここのstringへの変換
-	} else {
-		log.Printf("[ERROR] Can't find \"ESA_TOKEN\".")
+	if len(accessToken) <= 0 {
+		return errors.New("missing esa_token")
 	}
+	jsonEsa := esaInvitationJson{
+		Member: esaEmailJson{
+			Emails: []string{email},
+		},
+	}
+
+	outputJson, err := json.Marshal(&jsonEsa)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest(
+		"POST",
+		endpointUrl,
+		bytes.NewBuffer([]byte(outputJson)),
+	)
+	if err != nil {
+		return err
+	}
+
+	// Content-Type 設定
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	log.Printf("POST Esa invitation succeeded! %+v", resp)
 
 	return nil
 }
